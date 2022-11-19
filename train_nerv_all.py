@@ -13,7 +13,7 @@ import torch.multiprocessing as mp
 import torch.optim as optim
 import torch.utils.data
 from torch.utils.tensorboard import SummaryWriter
-from model_all import VideoDataSet, HNeRV, HNeRVDecoder
+from model_all import VideoDataSet, HNeRV, HNeRVDecoder, TransformInput
 from hnerv_utils import *
 from torch.utils.data import Subset
 from copy import deepcopy
@@ -26,7 +26,7 @@ def main():
     parser.add_argument('--data_path', type=str, default='', help='data path for vid')
     parser.add_argument('--vid', type=str, default='k400_train0', help='video id',)
     parser.add_argument('--shuffle_data', action='store_true', help='randomly shuffle the frame idx')
-    parser.add_argument('--data_split', type=str, default='19_19_20', 
+    parser.add_argument('--data_split', type=str, default='1_1_1', 
         help='Valid_train/total_train/all data split, e.g., 18_19_20 means for every 20 samples, the first 19 samples is full train set, and the first 18 samples is chose currently')
     parser.add_argument('--crop_list', type=str, default='640_1280', help='video crop size',)
     parser.add_argument('--resize_list', type=str, default='-1', help='video resize size',)
@@ -87,9 +87,6 @@ def main():
     parser.add_argument('--outf', default='unify', help='folder to output images and model checkpoints')
     parser.add_argument('--suffix', default='', help="suffix str for outf")
 
-    # for inpainting only
-    parser.add_argument('--aug_num', default=0, type=int, help='augmentation number, use IIVI mask augmentation?')
-    parser.add_argument('--dilate_len', default=0, type=int, help='augmentation number, use IIVI mask augmentation?')
 
     args = parser.parse_args()
     torch.set_printoptions(precision=4) 
@@ -100,9 +97,9 @@ def main():
         args.outf = os.path.join('output', args.outf)
 
     args.enc_strd_str, args.dec_strd_str = ','.join([str(x) for x in args.enc_strds]), ','.join([str(x) for x in args.dec_strds])
-    extra_str = 'Size{}_ENC_{}_{}_DEC_{}_{}_{}{}{}{}'.format(args.modelsize, args.conv_type[0], args.enc_strd_str, 
+    extra_str = 'Size{}_ENC_{}_{}_DEC_{}_{}_{}{}{}'.format(args.modelsize, args.conv_type[0], args.enc_strd_str, 
         args.conv_type[1], args.dec_strd_str, '' if args.norm == 'none' else f'_{args.norm}', 
-        '_dist' if args.distributed else '', '_shuffle_data' if args.shuffle_data else '', f'aug{args.aug_num}' if args.aug_num else '')
+        '_dist' if args.distributed else '', '_shuffle_data' if args.shuffle_data else '',)
     args.quant_str = f'quant_M{args.quant_model_bit}_E{args.quant_embed_bit}'
     embed_str = f'{args.embed}_Dim{args.enc_dim}'
     exp_id = f'{args.vid}/{args.data_split}_{embed_str}_FC{args.fc_hw}_KS{args.ks}_RED{args.reduce}_low{args.lower_width}_blk{args.num_blks}' + \
@@ -226,6 +223,7 @@ def train(local_rank, args):
         model = model.cuda()
 
     optimizer = optim.Adam(model.parameters(), weight_decay=0.)
+    args.transform_func = TransformInput(args)
 
     # resume from args.weight
     checkpoint = None
@@ -294,16 +292,17 @@ def train(local_rank, args):
                 break
 
             # forward and backward
+            img_data, img_gt, inpaint_mask = args.transform_func(img_data)
             cur_input = norm_idx if 'pe' in args.embed else img_data
             cur_epoch = (epoch + float(i) / len(train_dataloader)) / args.epochs
             lr = adjust_lr(optimizer, cur_epoch, args)
-            img_out, embed_list, _ = model(cur_input)
-            final_loss = loss_fn(img_out, img_data, args.loss)      
+            img_out, _, _ = model(cur_input)
+            final_loss = loss_fn(img_out*inpaint_mask, img_gt*inpaint_mask, args.loss)      
             optimizer.zero_grad()
             final_loss.backward()
             optimizer.step()
 
-            pred_psnr_list.append(psnr_fn_single(img_out.detach(), img_data)) 
+            pred_psnr_list.append(psnr_fn_single(img_out.detach(), img_gt)) 
             if i % args.print_freq == 0 or i == len(train_dataloader) - 1:
                 pred_psnr = torch.cat(pred_psnr_list).mean()
                 print_str = '[{}] Rank:{}, Epoch[{}/{}], Step [{}/{}], lr:{:.2e} pred_PSNR: {}'.format(
@@ -396,10 +395,8 @@ def Dump2CSV(args, best_results_list, results_list, psnr_list, filename='results
 @torch.no_grad()
 def evaluate(model, full_dataloader, local_rank, args, 
     dump_vis=False, huffman_coding=False):
-    model_psnr_list, img_embed_list = [], []
+    img_embed_list = []
     model_list, quant_ckt = quant_model(model, args)
-
-    # metric_name_list = args.metric_names
     metric_list = [[] for _ in range(len(args.metric_names))]
     for model_ind, cur_model in enumerate(model_list):
         time_list = []
@@ -410,11 +407,12 @@ def evaluate(model, full_dataloader, local_rank, args,
             print(f'Saving predictions to {visual_dir}...')
             if not os.path.isdir(visual_dir):
                 os.makedirs(visual_dir)        
+
         for i, sample in enumerate(full_dataloader):
             img_data, norm_idx, img_idx = data_to_gpu(sample['img'], device), data_to_gpu(sample['norm_idx'], device), data_to_gpu(sample['idx'], device)
             if i > 10 and args.debug:
                 break
-            img_gt = img_data
+            img_data, img_gt, inpaint_mask = args.transform_func(img_data)
             cur_input = norm_idx if 'pe' in args.embed else img_data
             img_out, embed_list, dec_time = cur_model(cur_input, dequant_vid_embed[i] if model_ind else None)
             if model_ind == 0:
@@ -444,6 +442,7 @@ def evaluate(model, full_dataloader, local_rank, args,
                     concat_img = torch.cat(dump_img_list, dim=2)    #img_out[batch_ind], 
                     save_image(concat_img, f'{visual_dir}/pred_{full_ind:04d}_{temp_psnr_list}.png')
 
+            # print eval results and add to log txt
             if i % args.print_freq == 0 or i == len(full_dataloader) - 1:
                 avg_time = sum(time_list) / len(time_list)
                 fps = args.batchSize / avg_time
@@ -459,12 +458,13 @@ def evaluate(model, full_dataloader, local_rank, args,
                     with open('{}/rank0.txt'.format(args.outf), 'a') as f:
                         f.write(print_str + '\n')
         
+        # embedding quantization
         if model_ind == 0:
-            # embedding quantization
             vid_embed = torch.cat(img_embed_list, 0) 
             quant_embed, dequant_emved = quant_tensor(vid_embed, args.quant_embed_bit)
             dequant_vid_embed = dequant_emved.split(args.batchSize, dim=0)
 
+        # Collect results from 
         results_list = [torch.stack(v_list, dim=1).mean(1).cpu() if len(v_list) else torch.zeros(1) for v_list in metric_list]
         args.fps = fps
         h,w = img_data.shape[-2:]
@@ -473,6 +473,7 @@ def evaluate(model, full_dataloader, local_rank, args,
             for cur_v in results_list:
                 cur_v = all_reduce([cur_v.to(local_rank)])
 
+        # Dump predictions and concat into videos
         if dump_vis and args.dump_videos:
             gif_file = os.path.join(args.outf, 'gt_pred' + ('_quant.gif' if model_ind else '.gif'))
             with imageio.get_writer(gif_file, mode='I') as writer:
@@ -483,14 +484,13 @@ def evaluate(model, full_dataloader, local_rank, args,
                 shutil.rmtree(visual_dir)
             # optimize(gif_file)
         
-    # dump quantized video, and decoder
-    if local_rank in [0, None]:
+    # dump quantized checkpoint, and decoder
+    if local_rank in [0, None] and quant_ckt != None:
         quant_vid = {'embed': quant_embed, 'model': quant_ckt}
         torch.save(quant_vid, f'{args.outf}/quant_vid.pth')
         torch.jit.save(torch.jit.trace(HNeRVDecoder(model), (vid_embed[:2])), f'{args.outf}/img_decoder.pth')
         # huffman coding
         if huffman_coding:
-        # import pdb; pdb.set_trace; from IPython import embed; embed()     
             quant_v_list = quant_embed['quant'].flatten().tolist()
             tmin_scale_len = quant_embed['min'].nelement() + quant_embed['scale'].nelement()
             for k, layer_wt in quant_ckt.items():
@@ -520,6 +520,7 @@ def evaluate(model, full_dataloader, local_rank, args,
             # bits per pixel
             args.total_bpp = total_bits / args.final_size / args.full_data_length
             print(f'After quantization and encoding: \n bits per parameter: {round(args.full_bits_per_param, 2)}, bits per pixel: {round(args.total_bpp, 4)}')
+    # import pdb; pdb.set_trace; from IPython import embed; embed()     
 
     return results_list, (h,w)
 
@@ -527,7 +528,7 @@ def evaluate(model, full_dataloader, local_rank, args,
 def quant_model(model, args):
     model_list = [deepcopy(model)]
     if args.quant_model_bit == -1:
-        return model_list, _
+        return model_list, None
     else:
         cur_model = deepcopy(model)
         quant_ckt, cur_ckt = [cur_model.state_dict() for _ in range(2)]

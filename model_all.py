@@ -311,55 +311,27 @@ def RandomMask(height, width, points_num, scale=(0, 1)):
     return 1 - torch.from_numpy(mask).float()
 
 
-def InpaintMask(inpaint_size, img_size, aug_num=0):
-    b, _, h, w = img_size
-    inpaint_mask, aug_inpaint_mask = torch.zeros([b,h,w]), torch.zeros([b,h,w])
-    if inpaint_size == -1:
-        mask_h, mask_w = h // 8, w // 8 ## NOTE: Matt changed from 8 to 4 to match IIVI
-        ctr_h, ctr_w = h // 2, w // 2
-        inpaint_mask[:,ctr_h - mask_h: ctr_h + mask_h, ctr_w - mask_w: ctr_w + mask_w] = 1
-        if aug_num > 0:
-            aug_offset_h = torch.randint(-mask_h, mask_h, (1,))[0]
-            aug_offset_w = torch.randint(-mask_w, mask_w, (1,))[0]
-            inpaint_mask[:,ctr_h - mask_h + aug_offset_h: ctr_h + mask_h + aug_offset_h, ctr_w - mask_w + aug_offset_w: ctr_w + mask_w + aug_offset_w] = 0
-    else:
-        for i, (ctr_x, ctr_y) in enumerate([(1/2, 1/2), (1/4, 1/4), (1/4, 3/4), (3/4, 1/4), (3/4, 3/4)]):
-            ctr_x, ctr_y = int(ctr_x * h), int(ctr_y * w)
-            inpaint_mask[:,ctr_x - inpaint_size: ctr_x + inpaint_size, ctr_y - inpaint_size: ctr_y + inpaint_size] = 1
-        max_aug_start_h = h - 2 * inpaint_size
-        max_aug_start_w = w - 2 * inpaint_size
-        for batch_i in range(b):
-            for i in range(aug_num):
-                start_x = torch.randint(0, max_aug_start_h, (1,))[0]
-                start_y = torch.randint(0, max_aug_start_w, (1,))[0]
-                aug_inpaint_mask[batch_i, start_x:start_x + inpaint_size * 2,start_y:start_y + inpaint_size * 2] = 1
-    return inpaint_mask, aug_inpaint_mask
-
-
 class TransformInput(nn.Module):
-    def __init__(self, dataset_str, aug_num=0, dilate_len=0):
+    def __init__(self, args):
         super(TransformInput, self).__init__()
-        self.dataset_str = dataset_str
-        self.aug_num = aug_num
-        self.dilate_len = dilate_len
-        if 'inpaint' in dataset_str:
-            self.inpaint_size = int(dataset_str.split('_')[-1]) // 2
+        self.vid = args.vid
+        if 'inpaint' in self.vid:
+            self.inpaint_size = int(self.vid.split('_')[-1]) // 2
 
-    def forward(self, img, idx):
+    def forward(self, img):
         inpaint_mask = torch.ones_like(img)
         if 'inpaint' in self.vid:
             gt = img.clone()
-            inpaint_mask, aug_inpaint_mask = [x.to(img.device) for x in InpaintMask(self.inpaint_size, img.size(), self.aug_num)]
-            inpaint_mask = torch.logical_or(inpaint_mask, aug_inpaint_mask)
-            inpaint_mask = (inpaint_mask[:,None] == 0).float()
-            input = img * inpaint_mask
+            h,w = img.shape[-2:]
+            inpaint_mask = torch.ones((h,w)).to(img.device)
+            for ctr_x, ctr_y in [(1/2, 1/2), (1/4, 1/4), (1/4, 3/4), (3/4, 1/4), (3/4, 3/4)]:
+                ctr_x, ctr_y = int(ctr_x * h), int(ctr_y * w)
+                inpaint_mask[ctr_x - self.inpaint_size: ctr_x + self.inpaint_size, ctr_y - self.inpaint_size: ctr_y + self.inpaint_size] = 0
+            input = (img * inpaint_mask).clamp(min=0,max=1)
         else:
             input, gt = img, img
 
-        if self.dilate_len:
-            erose_pad = ceil((self.dilate_len - 1) // 2)
-            inpaint_mask = -(F.max_pool2d(-inpaint_mask, self.dilate_len, 1, erose_pad))
-        return input.clamp(min=0,max=1), gt, inpaint_mask
+        return input, gt, inpaint_mask.detach()
 
 
 ###################################  Code for ConvNeXt   ###################################
