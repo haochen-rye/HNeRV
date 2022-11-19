@@ -169,6 +169,7 @@ class HNeRVDecoder(nn.Module):
         self.fc_h, self.fc_w = [torch.tensor(x) for x in [model.fc_h, model.fc_w]]
         self.out_bias = model.out_bias
         self.decoder = model.decoder
+        self.head_layer = model.head_layer
 
     def forward(self, img_embed):
         output = self.decoder[0](img_embed)
@@ -176,7 +177,8 @@ class HNeRVDecoder(nn.Module):
         output = output.view(n, -1, self.fc_h, self.fc_w, h, w).permute(0,1,4,2,5,3).reshape(n,-1,self.fc_h * h, self.fc_w * w)
         for layer in self.decoder[1:]:
             output = layer(output) 
-
+        output = self.head_layer(output)
+        
         return  OutImg(output, self.out_bias)
 
 

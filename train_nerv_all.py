@@ -534,12 +534,12 @@ def quant_model(model, args):
         quant_ckt, cur_ckt = [cur_model.state_dict() for _ in range(2)]
         encoder_k_list = []
         for k,v in cur_ckt.items():
-            if 'decoder' in k:
+            if 'encoder' in k:
+                encoder_k_list.append(k)
+            else:
                 quant_v, new_v = quant_tensor(v, args.quant_model_bit)
                 quant_ckt[k] = quant_v
                 cur_ckt[k] = new_v
-            else:
-                encoder_k_list.append(k)
         for encoder_k in encoder_k_list:
             del quant_ckt[encoder_k]
         cur_model.load_state_dict(cur_ckt)

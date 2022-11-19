@@ -10,7 +10,7 @@ This is the official implementation of the paper "HNeRV: A Hybrid Neural Represe
 
 ## TODO 
 - [ &check; ] Video inpainting
-- [ ] Fast loading from video checkpoints
+- [ &check; ] Fast loading from video checkpoints
 - [ ] Upload results and checkpoints for UVG
 
 ## Method overview
