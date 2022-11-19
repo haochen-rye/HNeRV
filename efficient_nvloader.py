@@ -41,10 +41,11 @@ def main():
 
     # Dump video and frames
     out_vid = os.path.join(args.dump_dir, 'nvloader_out.mp4')
-    out_img = os.path.join(args.dump_dir, 'frame0_out.png')
-    write_video(out_vid, img_out.permute(0,2,3,1) * 255., fps=30, options={'crf':'10'})
-    save_image(img_out[0], out_img)
-    print(f'dumped video to {out_vid}, image to {out_img}')
+    write_video(out_vid, img_out.permute(0,2,3,1) * 255., fps=args.frames/4, options={'crf':'10'})
+    for idx in range(args.frames):
+        out_img = os.path.join(args.dump_dir, f'frame{idx}_out.png')
+        save_image(img_out[idx], out_img)
+    print(f'dumped video to {out_vid}')
 
 
 if __name__ == '__main__':

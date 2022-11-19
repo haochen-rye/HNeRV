@@ -30,7 +30,8 @@ pip install -r requirements.txt
 The code is organized as follows:
 * [train_nerv_all.py](./train_nerv_all.py) includes a generic traiing routine.
 * [model_all.py](./model_all.py) contains the dataloader and neural network architecure 
-* [data/](./data) directory video/imae dataset, we provide big buck bunny here
+* [data/](./data) directory video/imae dataset, we provide bunny frames here
+* [checkpoints/](./checkpoints) we provide model weights, and quantized video checkpoints for bunny here
 * log files (tensorboard, txt, state_dict etc.) will be saved in output directory (specified by ```--outf```)
 
 ## Reproducing experiments
@@ -78,6 +79,13 @@ python train_nerv_all.py  --outf 1120  --data_path data/bunny --vid bunny_inpain
     --resize_list -1 --loss L2  --enc_strds 5 4 4 2 2 --enc_dim 64_16 \
     --dec_strds 5 4 4 2 2 --ks 0_1_5 --reduce 1.2   \
     --modelsize 1.5  -e 300 --eval_freq 30  --lower_width 12 -b 2 --lr 0.001
+```
+
+### Efficient video loading
+We can load video efficiently from a [tiny checkpoint](./checkpoints/quant_vid.pth).\
+Specify decoder and checkpoint by ```'--decoder [Decoder_path] --ckt [Video checkpoint]'```, output dir and frames by ```'--dump_dir [out_dir] --frames [frame_num]'```.
+```
+python efficient_nvloader.py --frames 16
 ```
 
 ## Citation
