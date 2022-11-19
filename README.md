@@ -10,12 +10,15 @@ This is the official implementation of the paper "HNeRV: A Hybrid Neural Represe
 
 ## TODO 
 - [ ] Video inpainting
+- [ ] Fast loading from video checkpoints
 - [ ] Upload results and checkpoints for UVG
 
 ## Method overview
-HNeRV architecture             |  Video Regression
-:-------------------------:|:-------------------------:
-![](https://i.imgur.com/SdRcEiY.jpg)  |  ![](https://i.imgur.com/CAppWSM.jpg)
+<!-- HNeRV architecture             |  Video Regression
+:-------------------------:|:-------------------------: -->
+![](https://i.imgur.com/SdRcEiY.jpg) 
+
+ ![](https://i.imgur.com/CAppWSM.jpg)
 
 ## Get started
 We run with Python 3.8, you can set up a conda environment with all dependencies like so:
