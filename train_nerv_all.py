@@ -19,6 +19,7 @@ from torch.utils.data import Subset
 from copy import deepcopy
 from dahuffman import HuffmanCodec
 from torchvision.utils import save_image
+import pandas as pd
 
 def main():
     parser = argparse.ArgumentParser()
@@ -34,7 +35,7 @@ def main():
     # NERV architecture parameters
     # Embedding and encoding parameters
     parser.add_argument('--embed', type=str, default='', help='empty string for HNeRV, and base value/embed_length for NeRV position encoding')
-    parser.add_argument('--ks', type=str, default='0_3_9', help='kernel size for encoder and decoder')
+    parser.add_argument('--ks', type=str, default='0_3_3', help='kernel size for encoder and decoder')
     parser.add_argument('--enc_strds', type=int, nargs='+', default=[], help='stride list for encoder')
     parser.add_argument('--enc_dim', type=str, default='64_16', help='enc latent dim and embedding ratio')
     parser.add_argument('--modelsize', type=float,  default=1.5, help='model parameters size: model size + embedding parameters')
@@ -42,7 +43,7 @@ def main():
 
     # Decoding parameters: FC + Conv
     parser.add_argument('--fc_hw', type=str, default='9_16', help='out size (h,w) for mlp')
-    parser.add_argument('--reduce', type=float, default=-1, help='chanel reduction for next stage')
+    parser.add_argument('--reduce', type=float, default=1.2, help='chanel reduction for next stage')
     parser.add_argument('--lower_width', type=int, default=32, help='lowest channel width for output feature maps')
     parser.add_argument('--dec_strds', type=int, nargs='+', default=[5, 3, 2, 2, 2], help='strides list for decoder')
     parser.add_argument('--num_blks', type=str, default='1_1', help='block number for encoder and decoder')
@@ -157,13 +158,14 @@ def train(local_rank, args):
     args.final_size = full_dataset.final_size
     args.full_data_length = len(full_dataset)
     split_num_list = [int(x) for x in args.data_split.split('_')]
-    args.train_ind_list, args.val_ind_list = data_split(list(range(args.full_data_length)), split_num_list, args.shuffle_data, 0)
+    train_ind_list, args.val_ind_list = data_split(list(range(args.full_data_length)), split_num_list, args.shuffle_data, 0)
     args.dump_vis = (args.dump_images or args.dump_videos)
 
-    # Split datasets into train and val set
-    split_num_list = [int(x) for x in args.data_split.split('_')]
-    args.train_ind_list, args.val_ind_list = data_split(list(range(args.full_data_length)), split_num_list, args.shuffle_data, 0)
-    args.full_data_length = len(full_dataset)
+    #  Make sure the testing dataset is fixed for every run
+    train_dataset =  Subset(full_dataset, train_ind_list)
+    train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset) if args.distributed else None
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batchSize, shuffle=(train_sampler is None),
+         num_workers=args.workers, pin_memory=True, sampler=train_sampler, drop_last=True, worker_init_fn=worker_init_fn)
 
     # Compute the parameter number
     if 'pe' in args.embed or 'le' in args.embed:
@@ -187,14 +189,6 @@ def train(local_rank, args):
     b =  embed_dim * fc_param 
     c =  args.lower_width **2 * sum([s**2 * min(2*(fix_ch_stages + i) + dec_ks1, dec_ks2)  **2 for i, s in enumerate(args.dec_strds[fix_ch_stages:])])
     args.fc_dim = int(np.roots([a,b,c - decoder_size]).max())
-
-    #  Make sure the testing dataset is fixed for every run
-    train_dataset =  Subset(full_dataset, args.train_ind_list)
-    train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset) if args.distributed else None
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batchSize, shuffle=(train_sampler is None),
-         num_workers=args.workers, pin_memory=True, sampler=train_sampler, drop_last=True, worker_init_fn=worker_init_fn)
-    full_dataloader = torch.utils.data.DataLoader(full_dataset, batch_size=args.batchSize,  shuffle=False,
-         num_workers=args.workers, pin_memory=True, sampler=train_sampler, drop_last=False, worker_init_fn=worker_init_fn)
 
     # Building model
     model = HNeRV(args)
@@ -369,28 +363,21 @@ def train(local_rank, args):
 
 # Writing final results in CSV file
 def Dump2CSV(args, best_results_list, results_list, psnr_list, filename='results.csv'):
-    csv_columns = ['Vid', 'CurEpoch', 'Time', 'FPS', 'Split', 'Embed', 'FC',  'Reduce', 
-        'Crop', 'Resize', 'lower_width', 'KS',  'Lr_type', 'Lr (E-3)', 'Batch',
-        'ENC_type', 'ENC_strds', 'enc_dim', 'DEC', 'DEC_strds', 'Size (M)', 'ModelSize',
-        'Epoch',  'Loss', 'Act', 'Norm', f'PSNR_list_{args.eval_freq}', 
-        'Quant', 'bits/param', 'bits/param w/ overhead', 'bits/pixel']
-    csv_columns += [f'best_{metric_name}' for metric_name in args.metric_names]
-    csv_columns += [f'{metric_name}' for metric_name in args.metric_names if 'pred' in metric_name]
-    csv_results = [args.vid, args.cur_epoch, args.train_time, args.fps, args.data_split, args.embed, args.fc_hw, args.reduce, 
-        args.crop_list, args.resize_list, args.lower_width, args.ks, args.lr_type, args.lr *1e3, args.batchSize, 
-        args.conv_type[0], args.enc_strd_str, args.enc_dim, args.conv_type[1], args.dec_strd_str, 
-        f'{round(args.encoder_param, 2)}_{round(args.decoder_param, 2)}_{round(args.total_param, 2)}', args.modelsize,
-         args.epochs, args.loss, args.act, args.norm, ','.join([RoundTensor(v, 2) for v in psnr_list]), 
-         args.quant_str, args.bits_per_param, args.full_bits_per_param, args.total_bpp]
-    csv_results += [RoundTensor(v, 4 if 'ssim' in k else 2) for k,v in zip(args.metric_names, best_results_list)]
-    csv_results += [RoundTensor(v, 4 if 'ssim' in k else 2) for k,v in zip(args.metric_names, results_list) if 'pred' in k]
-
+    result_dict = {'Vid':args.vid, 'CurEpoch':args.cur_epoch, 'Time':args.train_time, 
+        'FPS':args.fps, 'Split':args.data_split, 'Embed':args.embed, 'Crop': args.crop_list,
+        'Resize':args.resize_list, 'Lr_type':args.lr_type, 'LR (E-3)': args.lr*1e3, 'Batch':args.batchSize,
+        'Size (M)': f'{round(args.encoder_param, 2)}_{round(args.decoder_param, 2)}_{round(args.total_param, 2)}', 
+        'ModelSize': args.modelsize, 'Epoch':args.epochs, 'Loss':args.loss, 'Act':args.act, 'Norm':args.norm,
+        'FC':args.fc_hw, 'Reduce':args.reduce, 'ENC_type':args.conv_type[0], 'ENC_strds':args.enc_strd_str, 'KS':args.ks,
+        'enc_dim':args.enc_dim, 'DEC':args.conv_type[1], 'DEC_strds':args.dec_strd_str, 'lower_width':args.lower_width,
+         'Quant':args.quant_str, 'bits/param':args.bits_per_param, 'bits/param w/ overhead':args.full_bits_per_param, 
+        'bits/pixel':args.total_bpp, f'PSNR_list_{args.eval_freq}':','.join([RoundTensor(v, 2) for v in psnr_list]),}
+    result_dict.update({f'best_{k}':RoundTensor(v, 4 if 'ssim' in k else 2) for k,v in zip(args.metric_names, best_results_list)})
+    result_dict.update({f'{k}':RoundTensor(v, 4 if 'ssim' in k else 2) for k,v in zip(args.metric_names, results_list) if 'pred' in k})
     csv_path = os.path.join(args.outf, filename)
-    with open(csv_path, 'w') as f:
-        writer = csv.writer(f)
-        writer.writerow(csv_columns)
-        writer.writerow(csv_results)
     print(f'results dumped to {csv_path}')
+    pd.DataFrame(result_dict,index=[0]).to_csv(csv_path)
+
 
 @torch.no_grad()
 def evaluate(model, full_dataloader, local_rank, args, 
@@ -430,7 +417,7 @@ def evaluate(model, full_dataloader, local_rank, args,
             pred_psnr, pred_ssim = psnr_fn_batch([img_out], img_gt), msssim_fn_batch([img_out], img_gt)
             for metric_idx, cur_v in  enumerate([pred_psnr, pred_ssim]):
                 for batch_i, cur_img_idx in enumerate(img_idx):
-                    metric_idx_start = 0 if cur_img_idx in args.train_ind_list else 2
+                    metric_idx_start = 2 if cur_img_idx in args.val_ind_list else 0
                     metric_list[metric_idx_start+metric_idx+4*model_ind].append(cur_v[:,batch_i])
 
             # dump predictions

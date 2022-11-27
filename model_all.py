@@ -15,40 +15,53 @@ from pytorchvideo.data.encoded_video import EncodedVideo
 from torchvision.transforms.functional import center_crop, resize
 from torchvision.io import read_image
 from torch.nn.functional import interpolate
-from hnerv_utils import eval_quantize_per_tensor
+import decord
+decord.bridge.set_bridge('torch')
+import glob
 
 # Video dataset
 class VideoDataSet(Dataset):
     def __init__(self, args):
         if os.path.isfile(args.data_path):
-            video = EncodedVideo.from_path(args.data_path)
-            video_data = video.get_clip(0, video.duration)['video'] / 255. # (C,T,H,W)
+            self.video = decord.VideoReader(args.data_path)
         else:
-            img_list = [read_image(os.path.join(args.data_path, x)) for x in sorted(os.listdir(args.data_path))]
-            video_data = torch.stack(img_list, 1) / 255. # (C,T,H,W)
+            self.video = [os.path.join(args.data_path, x) for x in sorted(os.listdir(args.data_path))]
+
         # Resize the input video and center crop
-        if args.crop_list != '-1': 
-            crop_h, crop_w = [int(x) for x in args.crop_list.split('_')[:2]]
-            if 'last' not in args.crop_list:
-                video_data = center_crop(video_data, (crop_h, crop_w))
-        if args.resize_list != '-1':
-            if '_' in args.resize_list:
-                resize_h, resize_w = [int(x) for x in args.resize_list.split('_')]
-                video_data = interpolate(video_data, (resize_h, resize_w), 'bicubic')
+        self.crop_list, self.resize_list = args.crop_list, args.resize_list
+        # import pdb; pdb.set_trace; from IPython import embed; embed()     
+        first_frame = self.img_transform(self.img_load(0))
+        self.final_size = first_frame.size(-2) * first_frame.size(-1)
+
+    def img_load(self, idx):
+        if isinstance(self.video, list):
+            img = read_image(self.video[idx])
+        else:
+            img = self.video[idx].permute(-1,0,1)
+        return img / 255.
+
+    def img_transform(self, img):
+        if self.crop_list != '-1': 
+            crop_h, crop_w = [int(x) for x in self.crop_list.split('_')[:2]]
+            if 'last' not in self.crop_list:
+                img = center_crop(img, (crop_h, crop_w))
+        if self.resize_list != '-1':
+            if '_' in self.resize_list:
+                resize_h, resize_w = [int(x) for x in self.resize_list.split('_')]
+                img = interpolate(img, (resize_h, resize_w), 'bicubic')
             else:
-                resize_hw = int(args.resize_list)
-                video_data = resize(video_data, resize_hw,  'bicubic')
-        if 'last' in args.crop_list:
-            video_data = center_crop(video_data, (crop_h, crop_w))
-        self.video_data =video_data        
-        self.final_size = video_data.size(-2) * video_data.size(-1)
+                resize_hw = int(self.resize_list)
+                img = resize(img, resize_hw,  'bicubic')
+        if 'last' in self.crop_list:
+            img = center_crop(img, (crop_h, crop_w))
+        return img
 
     def __len__(self):
-        return self.video_data.size(1)
+        return len(self.video)
 
     def __getitem__(self, idx):
-        tensor_image = self.video_data[:,idx]
-        norm_idx = float(idx) / self.video_data.size(1)
+        tensor_image = self.img_transform(self.img_load(idx))
+        norm_idx = float(idx) / len(self.video)
         sample = {'img': tensor_image, 'idx': idx, 'norm_idx': norm_idx}
         
         return sample
@@ -178,7 +191,7 @@ class HNeRVDecoder(nn.Module):
         for layer in self.decoder[1:]:
             output = layer(output) 
         output = self.head_layer(output)
-        
+
         return  OutImg(output, self.out_bias)
 
 
