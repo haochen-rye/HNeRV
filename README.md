@@ -33,6 +33,8 @@ The code is organized as follows:
 * [data/](./data) directory video/imae dataset, we provide bunny frames here
 * [checkpoints/](./checkpoints) we provide model weights, and quantized video checkpoints for bunny here
 * log files (tensorboard, txt, state_dict etc.) will be saved in output directory (specified by ```--outf```)
+* We provide numerical results for distortion-compression at [uvg_results](./checkpoints/uvg_results.csv) and [per_video_results](./checkpoints/uvg_per_vid_results.csv) .
+
 
 ## Reproducing experiments
 
