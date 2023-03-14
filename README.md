@@ -14,11 +14,11 @@ This is the official implementation of the paper "HNeRV: A Hybrid Neural Represe
 - [ ] Upload results and checkpoints for UVG
 
 ## Method overview
-<!-- HNeRV architecture             |  Video Regression
-:-------------------------:|:-------------------------: -->
-![](https://i.imgur.com/SdRcEiY.jpg) 
 
- ![](https://i.imgur.com/CAppWSM.jpg)
+<p float="left">
+<img src="https://i.imgur.com/SdRcEiY.jpg"  width="400" />
+<img src="https://i.imgur.com/CAppWSM.jpg"  width="300" />
+</p>
 
 ## Get started
 We run with Python 3.8, you can set up a conda environment with all dependencies like so:
