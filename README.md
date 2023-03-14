@@ -1,4 +1,4 @@
-# HNeRV: A Hybrid Neural Representation for Videos  (Under Review)
+# HNeRV: A Hybrid Neural Representation for Videos  (CVPR 2023)
 ### [Project Page](https://haochen-rye.github.io/HNeRV) | [UVG Data](http://ultravideo.fi/#testsequences) 
 
 
@@ -96,9 +96,10 @@ If you find our work useful in your research, please cite:
 @InProceedings{chen2022hnerv,
       title={{HN}e{RV}: Neural Representations for Videos}, 
       author={Hao Chen and Matthew Gwilliam and Ser-Nam Lim and Abhinav Shrivastava},
-      year={2022},
+      year={2023},
+      booktitle={CVPR},
 }
 ```
 
 ## Contact
-If you have any questions, please feel free to email the authors.
+If you have any questions, please feel free to email the authors: chenh@umd.edu
