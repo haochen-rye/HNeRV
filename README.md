@@ -16,8 +16,8 @@ This is the official implementation of the paper "HNeRV: A Hybrid Neural Represe
 ## Method overview
 
 <p float="left">
-<img src="https://i.imgur.com/SdRcEiY.jpg"  height="225" />
-<img src="https://i.imgur.com/CAppWSM.jpg"  height="225" />
+<img src="https://i.imgur.com/SdRcEiY.jpg"  height="220" />
+<img src="https://i.imgur.com/CAppWSM.jpg"  height="220" />
 </p>
 
 ## Get started
