@@ -93,7 +93,7 @@ python efficient_nvloader.py --frames 16
 ## Citation
 If you find our work useful in your research, please cite:
 ```
-@InProceedings{chen2022hnerv,
+@InProceedings{chen2023hnerv,
       title={{HN}e{RV}: Neural Representations for Videos}, 
       author={Hao Chen and Matthew Gwilliam and Ser-Nam Lim and Abhinav Shrivastava},
       year={2023},
