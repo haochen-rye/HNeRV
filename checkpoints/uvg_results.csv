@@ -1,0 +1,4 @@
+Method,video,bpp,PSNR,ms-ssim
+HNeRV,all,0.0139,32.77,0.9166
+HNeRV,all,0.0339,34.39,0.9409
+HNeRV,all,0.0498,35.49,0.9539
