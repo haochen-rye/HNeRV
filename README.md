@@ -1,5 +1,5 @@
 # HNeRV: A Hybrid Neural Representation for Videos  (CVPR 2023)
-### [Project Page](https://haochen-rye.github.io/HNeRV) | [UVG Data](http://ultravideo.fi/#testsequences) 
+### [Paper](https://arxiv.org/abs/2304.02633) | [Project Page](https://haochen-rye.github.io/HNeRV) | [UVG Data](http://ultravideo.fi/#testsequences) 
 
 
 [Hao Chen](https://haochen-rye.github.io),
