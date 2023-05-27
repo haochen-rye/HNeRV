@@ -153,7 +153,7 @@ def train(local_rank, args):
     # setup dataloader    
     full_dataset = VideoDataSet(args)
     sampler = torch.utils.data.distributed.DistributedSampler(full_dataset) if args.distributed else None
-    full_dataloader = torch.utils.data.DataLoader(full_dataset, batch_size=args.batchSize, shuffle=(sampler is None),
+    full_dataloader = torch.utils.data.DataLoader(full_dataset, batch_size=args.batchSize, shuffle=False,
             num_workers=args.workers, pin_memory=True, sampler=sampler, drop_last=False, worker_init_fn=worker_init_fn)
     args.final_size = full_dataset.final_size
     args.full_data_length = len(full_dataset)
